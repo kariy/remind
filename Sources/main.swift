@@ -71,6 +71,28 @@ func parseDate(_ string: String) -> DateComponents? {
             return comps
         }
     }
+    // Named days
+    let cal = Calendar.current
+    let lower = string.lowercased()
+    switch lower {
+    case "today":
+        return cal.dateComponents([.year, .month, .day], from: Date())
+    case "tomorrow":
+        let d = cal.date(byAdding: .day, value: 1, to: Date())!
+        return cal.dateComponents([.year, .month, .day], from: d)
+    default:
+        // Day-of-week: "monday", "tuesday", etc. → next occurrence
+        let weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+        if let targetIndex = weekdays.firstIndex(of: lower) {
+            let target = targetIndex + 1 // Calendar weekday is 1-based
+            let todayWeekday = cal.component(.weekday, from: Date())
+            var daysAhead = target - todayWeekday
+            if daysAhead <= 0 { daysAhead += 7 }
+            let d = cal.date(byAdding: .day, value: daysAhead, to: Date())!
+            return cal.dateComponents([.year, .month, .day], from: d)
+        }
+    }
+
     // Relative: +Nd or +Nh or +Nm
     let pattern = #"^\+(\d+)([dhm])$"#
     if let match = string.range(of: pattern, options: .regularExpression) {
@@ -85,7 +107,12 @@ func parseDate(_ string: String) -> DateComponents? {
         case "m": date = cal.date(byAdding: .minute, value: num, to: date)!
         default: break
         }
-        return cal.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let includesTime = unit == "h" || unit == "m"
+        if includesTime {
+            return cal.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        } else {
+            return cal.dateComponents([.year, .month, .day], from: date)
+        }
     }
     return nil
 }
@@ -155,12 +182,12 @@ func cmdAdd(_ args: [String]) async throws {
     if let dueStr {
         guard let comps = parseDate(dueStr) else {
             print("Error: could not parse date '\(dueStr)'")
-            print("  formats: yyyy-MM-dd, yyyy-MM-dd HH:mm, +Nd, +Nh, +Nm")
+            print("  formats: yyyy-MM-dd, yyyy-MM-dd HH:mm, +Nd, +Nh, +Nm, today, tomorrow, monday..sunday")
             return
         }
         reminder.dueDateComponents = comps
-        // Add an alarm at the due date
-        if let date = Calendar.current.date(from: comps) {
+        // Only add an alarm when a specific time is provided
+        if comps.hour != nil, let date = Calendar.current.date(from: comps) {
             reminder.addAlarm(EKAlarm(absoluteDate: date))
         }
     }
@@ -271,6 +298,8 @@ func printUsage() {
       yyyy-MM-dd          e.g. 2026-04-01
       yyyy-MM-dd HH:mm    e.g. 2026-04-01 09:00
       +Nd / +Nh / +Nm     e.g. +3d (3 days from now), +2h, +30m
+      today, tomorrow
+      monday..sunday       next occurrence of that day
     """)
 }
 
